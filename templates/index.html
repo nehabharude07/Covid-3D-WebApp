@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>COVID-19 3D Atlas</title>
+<style>
+:root{--bg1:#f4f7fd;--bg2:#c9d8f0;--ink:#13213a;--mut:#51607a;--pan:rgba(255,255,255,.8);--bd:rgba(19,33,58,.15);--acc:#0b7a75;--on:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg1:#16264a;--bg2:#070c18;--ink:#e8eefc;--mut:#9fb0cf;--pan:rgba(14,22,42,.8);--bd:rgba(255,255,255,.14);--acc:#5eead4;--on:#06201e}}
+:root[data-theme="dark"]{--bg1:#16264a;--bg2:#070c18;--ink:#e8eefc;--mut:#9fb0cf;--pan:rgba(14,22,42,.8);--bd:rgba(255,255,255,.14);--acc:#5eead4;--on:#06201e}
+html,body{height:100%;margin:0}
+body{background:radial-gradient(ellipse at 50% 40%,var(--bg1),var(--bg2));color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#cv{position:fixed;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
+.p{position:fixed;background:var(--pan);border:1px solid var(--bd);border-radius:14px;padding:10px 14px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+#hd{top:calc(12px + env(safe-area-inset-top,0px));left:12px;max-width:min(420px,calc(100vw - 24px))}
+h1{font-size:18px;margin:0 0 2px}.sub{color:var(--mut);font-size:12px;margin:0 0 8px}
+.seg{display:inline-flex;border:1px solid var(--bd);border-radius:999px;overflow:hidden;margin:0 6px 4px 0}
+.seg button{border:0;background:none;color:var(--ink);padding:5px 13px;font:inherit;cursor:pointer}
+.seg button.on{background:var(--acc);color:var(--on);font-weight:600}
+#rt{top:calc(12px + env(safe-area-inset-top,0px));right:12px;width:200px;max-width:44vw;font-size:12.5px}
+ul{list-style:none;margin:6px 0 0;padding:0}li{display:flex;align-items:center;gap:7px;margin:3px 0}li b{margin-left:auto}
+li i{width:12px;height:12px;border-radius:3px;border:1px solid var(--bd);flex:none}
+h3{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:0}
+#bar{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;gap:12px}
+#bar button{border:0;border-radius:999px;background:var(--acc);color:var(--on);padding:7px 16px;font:600 13px system-ui;cursor:pointer;flex:none}
+#sl{flex:1;accent-color:var(--acc);min-width:0}#dt{font-weight:600;min-width:84px;text-align:right}
+#tot{color:var(--mut);font-size:12px}
+#tip{position:fixed;pointer-events:none;background:var(--pan);border:1px solid var(--bd);border-radius:10px;padding:7px 10px;font-size:12.5px;white-space:pre;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:5}
+#hint{left:50%;transform:translateX(-50%);bottom:calc(74px + env(safe-area-inset-bottom,0px));font-size:11.5px;color:var(--mut);padding:4px 12px;border-radius:999px}
+#err{top:40%;left:50%;transform:translateX(-50%)}
+[hidden]{display:none!important}
+@media(max-width:640px){ #tw{display:none}#bar{gap:8px}#hint{display:none}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="p" id="hd">
+  <h1>COVID-19 3D Atlas</h1>
+  <p class="sub" id="sub"></p>
+  <div class="seg" id="vs"><button data-v="globe" class="on">3D Globe</button><button data-v="fc">3D Forecast</button></div>
+  <div class="seg" id="ms"><button data-m="cases" class="on">Cases</button><button data-m="deaths">Deaths</button></div>
+</div>
+<div class="p" id="rt">
+  <div id="gl"><h3>Cumulative <span id="mn">cases</span></h3><ul id="lg"></ul>
+    <div id="tw"><h3 style="margin-top:10px">Top 5 countries</h3><ul id="top"></ul></div></div>
+  <div id="fl" hidden><h3>Daily <span id="mn2">cases</span></h3>
+    <ul><li><i style="background:#2dd4bf"></i>7-day average</li><li><i style="background:#ff9b2f"></i>30-day forecast</li><li><i style="background:#ffd166;opacity:.5"></i>80% range</li></ul>
+    <p class="sub" style="margin:8px 0 0" id="bt"></p></div>
+</div>
+<div class="p" id="bar"><button id="pl">▶ Play</button><input id="sl" type="range" min="0" value="0"><span id="dt"></span><span id="tot"></span></div>
+<div class="p" id="hint">Drag to rotate · scroll or pinch to zoom · hover a bar for details</div>
+<div class="p" id="err" hidden>WebGL is not available in this browser, so the 3D view cannot start.</div>
+<div id="tip" hidden></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+window.__DATA__ = {{ data|tojson }};
+</script>
+<script>
+const D=window.__DATA__,F=D.forecast,C=D.countries,W=D.dates.length-1,$=s=>document.querySelector(s);
+const nf=new Intl.NumberFormat('en'),cf=new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1});
+const BIN={cases:[5e4,2e5,8e5,1.5e6],deaths:[1e3,5e3,2e4,5e4]},COL=[0xe6f1ff,0xd9c97a,0xffe14a,0xff9b2f,0xff3b30];
+const LAB={cases:['Under 50K','50K–200K','200K–800K','800K–1.5M','1.5M+'],deaths:['Under 1K','1K–5K','5K–20K','20K–50K','50K+']};
+const MAX={cases:Math.max(...C.map(c=>c.cases[W])),deaths:Math.max(...C.map(c=>c.deaths[W]))};
+let metric='cases',view='globe',wk=W,playing=false,hover=null,renderer;
+try{renderer=new THREE.WebGLRenderer({canvas:$('#cv'),antialias:true,alpha:true})}catch(e){$('#err').hidden=false;throw e}
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,.1,200),R=5;
+scene.add(new THREE.AmbientLight(0xffffff,.6));const sun=new THREE.DirectionalLight(0xffffff,.85);scene.add(sun);
+const G=new THREE.Group(),FG=new THREE.Group();scene.add(G,FG);
+const P=(lat,lon,r=R)=>{const a=(90-lat)*Math.PI/180,b=(lon+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(a)*Math.cos(b),r*Math.cos(a),r*Math.sin(a)*Math.sin(b))};
+const earth=new THREE.Mesh(new THREE.SphereGeometry(R,64,48),new THREE.MeshPhongMaterial({color:0x1b3a6b,shininess:14}));G.add(earth);
+G.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.06,48,32),new THREE.MeshBasicMaterial({color:0x4aa8ff,transparent:true,opacity:.1,side:THREE.BackSide})));
+const gp=[];for(let la=-80;la<=80;la+=20)for(let lo=-180;lo<180;lo+=5)gp.push(P(la,lo,R*1.003),P(la,lo+5,R*1.003));
+for(let lo=-180;lo<180;lo+=20)for(let la=-90;la<90;la+=5)gp.push(P(la,lo,R*1.003),P(la+5,lo,R*1.003));
+G.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(gp),new THREE.LineBasicMaterial({color:0x7fa2de,transparent:true,opacity:.35})));
+const bg=new THREE.BoxGeometry(1,1,1);bg.translate(0,0,.5);
+const bars=C.map(c=>{const m=new THREE.Mesh(bg,new THREE.MeshPhongMaterial({color:0xffffff})),p=P(c.lat,c.lon);m.position.copy(p);m.lookAt(p.clone().multiplyScalar(2));m.userData={c};G.add(m);return m});
+const val=c=>c[metric][wk];
+function paint(){const b=BIN[metric],mx=MAX[metric];let tot=0;
+ bars.forEach(m=>{const v=val(m.userData.c);tot+=v;m.visible=v>0;m.scale.set(.11,.11,v>0?.04+2.8*Math.pow(v/mx,.45):.001);m.material.color.setHex(COL[b.filter(t=>v>=t).length])});
+ $('#dt').textContent=D.dates[wk];$('#tot').textContent=cf.format(tot);$('#sl').value=wk;
+ $('#top').innerHTML=C.map(c=>[c.n,val(c)]).sort((a,b)=>b[1]-a[1]).slice(0,5).map((t,i)=>`<li><span>${i+1}. ${t[0]}</span><b>${cf.format(t[1])}</b></li>`).join('')}
+function legend(){$('#lg').innerHTML=COL.map((c,i)=>`<li><i style="background:#${c.toString(16).padStart(6,'0')}"></i>${LAB[metric][i]}</li>`).join('');$('#mn').textContent=$('#mn2').textContent=metric}
+const bx=new THREE.BoxGeometry(1,1,1);bx.translate(0,.5,0);
+function buildFc(){FG.clear();const f=F[metric],n=f.hist.length,N=n+f.mid.length,dx=.1,x0=-N*dx/2,k=5/Math.max(...f.hist,...f.hi);
+ const add=(x,y0,y1,w,d,col,op,tip)=>{const m=new THREE.Mesh(bx,new THREE.MeshPhongMaterial({color:col,transparent:op<1,opacity:op,depthWrite:op>=1}));m.position.set(x,y0,0);m.scale.set(w,Math.max(y1-y0,.01),d);m.userData.tip=tip;FG.add(m)};
+ f.hist.forEach((v,i)=>add(x0+i*dx,0,v*k,.085,.5,0x2dd4bf,1,`${f.hd[i]}\n${nf.format(v)} per day (7-day avg)`));
+ f.mid.forEach((v,i)=>{const x=x0+(n+i)*dx,t=`${f.fd[i]} · forecast\n${nf.format(v)} per day\n80% range ${nf.format(f.lo[i])}–${nf.format(f.hi[i])}`;add(x,0,v*k,.085,.5,0xff9b2f,1,t);add(x,f.lo[i]*k,f.hi[i]*k,.11,.8,0xffd166,.3,t)});
+ const gr=new THREE.GridHelper(20,40,0x7fa2de,0x7fa2de);gr.material.transparent=true;gr.material.opacity=.25;gr.position.y=-.01;FG.add(gr);
+ const td=new THREE.Mesh(new THREE.PlaneGeometry(3,5.6),new THREE.MeshBasicMaterial({color:0xffffff,opacity:.1,transparent:true,side:THREE.DoubleSide,depthWrite:false}));td.rotation.y=Math.PI/2;td.position.set(x0+n*dx-dx/2,2.8,0);FG.add(td);
+ $('#bt').textContent=`Simple baseline: damped trend plus weekly pattern. Backtest error on the last 30 days: ${f.mape}%. Data ends ${D.dates[W]}.`}
+const S={globe:{y:.9,p:.4,d:15,t:new THREE.Vector3(),min:8,max:30},fc:{y:.5,p:.42,d:15,t:new THREE.Vector3(0,2,0),min:6,max:35}};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function place(){const s=S[view];cam.position.set(s.t.x+s.d*Math.cos(s.p)*Math.sin(s.y),s.t.y+s.d*Math.sin(s.p),s.t.z+s.d*Math.cos(s.p)*Math.cos(s.y));cam.lookAt(s.t);sun.position.copy(cam.position).add(new THREE.Vector3(3,5,2))}
+function setView(v){view=v;G.visible=v=='globe';FG.visible=!G.visible;$('#gl').hidden=!G.visible;$('#fl').hidden=G.visible;$('#bar').hidden=!G.visible;$('#tip').hidden=true;hover=null;
+ document.querySelectorAll('#vs button').forEach(b=>b.classList.toggle('on',b.dataset.v==v))}
+function setMetric(m){metric=m;document.querySelectorAll('#ms button').forEach(b=>b.classList.toggle('on',b.dataset.m==m));legend();paint();buildFc()}
+$('#vs').onclick=e=>e.target.dataset.v&&setView(e.target.dataset.v);
+$('#ms').onclick=e=>e.target.dataset.m&&setMetric(e.target.dataset.m);
+$('#sl').max=W;$('#sl').oninput=e=>{wk=+e.target.value;paint()};
+$('#pl').onclick=()=>{playing=!playing;if(playing&&wk>=W)wk=0;$('#pl').textContent=playing?'❚❚ Pause':'▶ Play'};
+const cv=$('#cv'),rc=new THREE.Raycaster(),ptr=new Map();let moved=0,pd=0;
+function pick(e){const r=cv.getBoundingClientRect();rc.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height)*2+1),cam);
+ const list=view=='globe'?[earth,...bars.filter(m=>m.visible)]:FG.children.filter(m=>m.userData.tip);
+ const h=rc.intersectObjects(list)[0],tip=$('#tip');hover=null;
+ if(h&&h.object!==earth){hover=h.object;const u=hover.userData;tip.textContent=u.tip||`${u.c.n}\n${nf.format(val(u.c))} ${metric}`;tip.hidden=false;
+  tip.style.left=Math.min(e.clientX+14,innerWidth-190)+'px';tip.style.top=Math.max(e.clientY-10,8)+'px'}else tip.hidden=true}
+cv.onpointerdown=e=>{cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,[e.clientX,e.clientY]);moved=0};
+cv.onpointermove=e=>{const s=S[view];
+ if(ptr.has(e.pointerId)){const o=ptr.get(e.pointerId),dx=e.clientX-o[0],dy=e.clientY-o[1];ptr.set(e.pointerId,[e.clientX,e.clientY]);moved+=Math.abs(dx)+Math.abs(dy);
+  if(ptr.size==1){s.y-=dx*.006;s.p=clamp(s.p+dy*.006,-1.2,1.45)}
+  else{const [a,b]=[...ptr.values()],dd=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pd)s.d=clamp(s.d*pd/dd,s.min,s.max);pd=dd}
+ }else pick(e)};
+cv.onpointerup=cv.onpointercancel=e=>{if(ptr.size==1&&moved<6)pick(e);ptr.delete(e.pointerId);pd=0};
+cv.addEventListener('wheel',e=>{e.preventDefault();const s=S[view];s.d=clamp(s.d*(1+e.deltaY*.001),s.min,s.max)},{passive:false});
+function resize(){renderer.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
+addEventListener('resize',resize);
+let last=0;
+function loop(t){requestAnimationFrame(loop);
+ if(view=='globe'&&!ptr.size&&!hover)S.globe.y+=.0018;
+ if(playing&&t-last>70){last=t;if(wk>=W){playing=false;$('#pl').textContent='▶ Play'}else{wk++;paint()}}
+ place();renderer.render(scene,cam)}
+$('#sub').textContent=`Global spread and 30-day forecast · data to ${D.dates[W]}`;
+legend();paint();buildFc();setView('globe');resize();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
